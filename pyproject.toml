@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
 keywords = ["security", "vulnerability", "audit", "uv", "rust", "cli"]
-authors = [{ name = "Mohit Mamgain", email = "mohitmamgain16@gmail.com" }]
+authors = [{ name = "Shiva Kharbanda", email = "shivakharbanda1311@gmail.com" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -22,8 +22,8 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/YOUR-GITHUB-USERNAME/py-uv-audit"
-"Bug Tracker" = "https://github.com/YOUR-GITHUB-USERNAME/py-uv-audit/issues"
+Repository = "https://github.com/shivakharbanda/py-uv-audit"
+"Bug Tracker" = "https://github.com/shivakharbanda/py-uv-audit/issues"
 
 [tool.maturin]
 bindings = "bin"
