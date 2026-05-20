@@ -13,7 +13,7 @@ permissions:
 jobs:
   lint:
     name: Rust lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -26,30 +26,36 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
   build:
-    name: Build wheel (${{ matrix.os }} / ${{ matrix.target }})
+    name: Build wheel (${{ matrix.os }})
     needs: lint
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,  target: x86_64,  manylinux: auto }
-          - { os: ubuntu-latest,  target: aarch64, manylinux: auto }
-          - { os: macos-13,       target: x86_64 }
-          - { os: macos-14,       target: aarch64 }
-          - { os: windows-latest, target: x86_64 }
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Build wheel
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@v1.51.0
         with:
+          command: build
           target: ${{ matrix.target }}
           args: --release --out dist
-          manylinux: ${{ matrix.manylinux || 'auto' }}
+          manylinux: auto
+          rust-toolchain: "1.85"
 
-      - name: Smoke-test wheel (native runners only)
-        if: matrix.target == 'x86_64' || (matrix.os == 'macos-14' && matrix.target == 'aarch64')
+      - name: Smoke-test wheel
         shell: bash
         run: |
           VENV="${RUNNER_TEMP:-/tmp}/v"
@@ -57,29 +63,31 @@ jobs:
           if [ -d "$VENV/Scripts" ]; then BIN="$VENV/Scripts"; else BIN="$VENV/bin"; fi
           "$BIN/pip" install --upgrade pip
           "$BIN/pip" install dist/*.whl
-          # Verify the binary is installed and launches. We pass non-existent
-          # input files and expect a clean non-zero exit (not a segfault).
-          if "$BIN/py-uv-audit" --pyproject /nonexistent.toml --lockfile /nonexistent.lock; then
-            echo "✗ binary should have failed on missing input files"
+          # Bare invocation prints help and exits 0
+          "$BIN/py-uv-audit"
+          # `audit` against missing files should exit non-zero with the friendly error
+          if "$BIN/py-uv-audit" audit --pyproject /nonexistent.toml --lockfile /nonexistent.lock; then
+            echo "✗ audit subcommand should have failed on missing input files"
             exit 1
           fi
-          echo "✓ binary launches and exits cleanly on bad input"
+          echo "✓ binary launches, prints help, and exits cleanly on bad input"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          name: wheels-${{ matrix.os }}
           path: dist/
 
   sdist:
     name: Build sdist
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: PyO3/maturin-action@v1
+      - uses: PyO3/maturin-action@v1.51.0
         with:
           command: sdist
           args: --out dist
+          rust-toolchain: "1.85"
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-sdist
@@ -87,7 +95,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build, sdist]
     if: startsWith(github.ref, 'refs/tags/v')
     environment:

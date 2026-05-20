@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(/mnt/c/Users/shiva/.cargo/bin/cargo.exe *)"
+      "Bash(/mnt/c/Users/shiva/.cargo/bin/cargo.exe *)",
+      "WebSearch"
     ]
   }
 }
