@@ -238,7 +238,13 @@ pub(crate) fn max_ver<'a>(a: &'a str, b: &'a str) -> &'a str {
 pub(crate) fn bump_type_str(current: &str, fixed: &str) -> &'static str {
     let (cm, cn, _) = parse_ver(current);
     let (fm, fn_, _) = parse_ver(fixed);
-    if fm > cm { "MAJOR" } else if fn_ > cn { "MINOR" } else { "PATCH" }
+    if fm > cm {
+        "MAJOR"
+    } else if fn_ > cn {
+        "MINOR"
+    } else {
+        "PATCH"
+    }
 }
 
 pub(crate) fn bump_reason(current: &str, fixed: &str, parent: &str, parent_ver: &str) -> String {
@@ -251,15 +257,17 @@ pub(crate) fn bump_reason(current: &str, fixed: &str, parent: &str, parent_ver: 
             "MINOR bump — {} v{} supports this version (new features, no breaking changes)",
             parent, parent_ver
         ),
-        _ => format!("PATCH bump — {} v{} already supports this version", parent, parent_ver),
+        _ => format!(
+            "PATCH bump — {} v{} already supports this version",
+            parent, parent_ver
+        ),
     }
 }
 
 // ── Dependency resolution ─────────────────────────────────────────────────────
 
 fn get_deps<'a>(pkg: &'a LockedPackage, extras: &[String]) -> Vec<&'a LockedDep> {
-    let mut deps: Vec<&LockedDep> =
-        pkg.dependencies.as_deref().unwrap_or(&[]).iter().collect();
+    let mut deps: Vec<&LockedDep> = pkg.dependencies.as_deref().unwrap_or(&[]).iter().collect();
     if let Some(opt) = &pkg.optional_dependencies {
         for extra in extras {
             if let Some(extra_deps) = opt.get(extra.as_str()) {
@@ -386,25 +394,29 @@ fn fetch_vuln_detail(
 
 fn extract_fix_version(detail: &OsvVulnDetail) -> Option<&str> {
     detail.affected.as_deref()?.iter().find_map(|a| {
-        a.ranges.as_deref()?.iter().find_map(|r| {
-            r.events.as_deref()?.iter().find_map(|e| e.fixed.as_deref())
-        })
+        a.ranges
+            .as_deref()?
+            .iter()
+            .find_map(|r| r.events.as_deref()?.iter().find_map(|e| e.fixed.as_deref()))
     })
 }
 
 fn extract_last_affected(detail: &OsvVulnDetail) -> Option<&str> {
     detail.affected.as_deref()?.iter().find_map(|a| {
         a.ranges.as_deref()?.iter().find_map(|r| {
-            r.events.as_deref()?.iter().find_map(|e| e.last_affected.as_deref())
+            r.events
+                .as_deref()?
+                .iter()
+                .find_map(|e| e.last_affected.as_deref())
         })
     })
 }
 
 fn extract_advisory_url(detail: &OsvVulnDetail) -> Option<String> {
-    if let Some(refs) = &detail.references {
-        if let Some(r) = refs.iter().find(|r| r.ref_type == "ADVISORY") {
-            return Some(r.url.clone());
-        }
+    if let Some(refs) = &detail.references
+        && let Some(r) = refs.iter().find(|r| r.ref_type == "ADVISORY")
+    {
+        return Some(r.url.clone());
     }
     detail.aliases.as_deref()?.iter().find_map(|a| {
         a.starts_with("CVE-")
@@ -413,23 +425,28 @@ fn extract_advisory_url(detail: &OsvVulnDetail) -> Option<String> {
 }
 
 pub(crate) fn extract_severity(detail: &OsvVulnDetail) -> Option<String> {
-    if let Some(db) = &detail.database_specific {
-        if let Some(label) = db.get("severity").and_then(|v| v.as_str()) {
-            if !label.is_empty() && label != "UNSPECIFIED" {
-                let cvss_type = detail
-                    .severity
-                    .as_deref()
-                    .and_then(|s| s.first())
-                    .map(|s| format!(" ({})", s.severity_type));
-                return Some(format!("{}{}", label, cvss_type.unwrap_or_default()));
-            }
-        }
+    if let Some(db) = &detail.database_specific
+        && let Some(label) = db.get("severity").and_then(|v| v.as_str())
+        && !label.is_empty()
+        && label != "UNSPECIFIED"
+    {
+        let cvss_type = detail
+            .severity
+            .as_deref()
+            .and_then(|s| s.first())
+            .map(|s| format!(" ({})", s.severity_type));
+        return Some(format!("{}{}", label, cvss_type.unwrap_or_default()));
     }
-    detail.severity.as_deref()?.first().map(|s| s.severity_type.clone())
+    detail
+        .severity
+        .as_deref()?
+        .first()
+        .map(|s| s.severity_type.clone())
 }
 
 // ── Audit collector ───────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn collect_audit(
     name: &str,
     extras: &[String],
@@ -446,49 +463,48 @@ fn collect_audit(
         return;
     }
 
-    if let Some(ids) = vuln_ids.get(name) {
-        if seen_vulns.insert(name.to_owned()) {
-            ancestors_out.insert(name.to_owned(), ancestors.to_vec());
-            let version = lock_map
-                .get(name)
-                .map(|p| p.version.clone())
-                .unwrap_or_else(|| "?".to_owned());
+    if let Some(ids) = vuln_ids.get(name)
+        && seen_vulns.insert(name.to_owned())
+    {
+        ancestors_out.insert(name.to_owned(), ancestors.to_vec());
+        let version = lock_map
+            .get(name)
+            .map(|p| p.version.clone())
+            .unwrap_or_else(|| "?".to_owned());
 
-            let cves: Vec<CveInfo> = ids
-                .iter()
-                .map(|id| {
-                    if let Some(detail) = detail_map.get(id.as_str()) {
-                        CveInfo {
-                            id: id.clone(),
-                            summary: detail.summary.clone(),
-                            details: detail.details.clone(),
-                            severity: extract_severity(detail),
-                            fix_version: extract_fix_version(detail).map(str::to_owned),
-                            last_affected_version: extract_last_affected(detail)
-                                .map(str::to_owned),
-                            advisory_url: extract_advisory_url(detail),
-                        }
-                    } else {
-                        CveInfo {
-                            id: id.clone(),
-                            summary: None,
-                            details: None,
-                            severity: None,
-                            fix_version: None,
-                            last_affected_version: None,
-                            advisory_url: None,
-                        }
+        let cves: Vec<CveInfo> = ids
+            .iter()
+            .map(|id| {
+                if let Some(detail) = detail_map.get(id.as_str()) {
+                    CveInfo {
+                        id: id.clone(),
+                        summary: detail.summary.clone(),
+                        details: detail.details.clone(),
+                        severity: extract_severity(detail),
+                        fix_version: extract_fix_version(detail).map(str::to_owned),
+                        last_affected_version: extract_last_affected(detail).map(str::to_owned),
+                        advisory_url: extract_advisory_url(detail),
                     }
-                })
-                .collect();
+                } else {
+                    CveInfo {
+                        id: id.clone(),
+                        summary: None,
+                        details: None,
+                        severity: None,
+                        fix_version: None,
+                        last_affected_version: None,
+                        advisory_url: None,
+                    }
+                }
+            })
+            .collect();
 
-            out.push(VulnerabilityReport {
-                package: name.to_owned(),
-                version,
-                ancestors: ancestors.to_vec(),
-                cves,
-            });
-        }
+        out.push(VulnerabilityReport {
+            package: name.to_owned(),
+            version,
+            ancestors: ancestors.to_vec(),
+            cves,
+        });
     }
 
     if let Some(pkg) = lock_map.get(name) {
@@ -530,7 +546,10 @@ fn build_fix_suggestions_internal(
         .filter_map(|name| {
             let ids = vuln_ids.get(name)?;
             let ancestors = &ancestors_map[name];
-            let current_ver = lock_map.get(name).map(|p| p.version.as_str()).unwrap_or("?");
+            let current_ver = lock_map
+                .get(name)
+                .map(|p| p.version.as_str())
+                .unwrap_or("?");
             let is_direct = ancestors.is_empty();
 
             let mut min_safe: Option<&str> = None;
@@ -558,8 +577,10 @@ fn build_fix_suggestions_internal(
                 (None, None)
             } else {
                 let parent = ancestors.last().map(String::as_str).unwrap_or(name);
-                let parent_ver =
-                    lock_map.get(parent).map(|p| p.version.as_str()).unwrap_or("?");
+                let parent_ver = lock_map
+                    .get(parent)
+                    .map(|p| p.version.as_str())
+                    .unwrap_or("?");
                 (Some(parent.to_owned()), Some(parent_ver.to_owned()))
             };
 
@@ -602,8 +623,7 @@ fn parse_files(
     pyproject_path: &str,
     lock_path: &str,
 ) -> anyhow::Result<(PyProject, HashMap<String, LockedPackage>)> {
-    let pyproject: PyProject =
-        toml::from_str(&std::fs::read_to_string(pyproject_path)?)?;
+    let pyproject: PyProject = toml::from_str(&std::fs::read_to_string(pyproject_path)?)?;
     let lock: LockFile = toml::from_str(&std::fs::read_to_string(lock_path)?)?;
     let lock_map = lock
         .package
@@ -629,10 +649,7 @@ pub fn dependency_tree(pyproject_path: &str, lock_path: &str) -> anyhow::Result<
 }
 
 /// Scan all packages in the dependency tree against OSV. Returns structured results.
-pub fn vulnerability_scan(
-    pyproject_path: &str,
-    lock_path: &str,
-) -> anyhow::Result<ScanResult> {
+pub fn vulnerability_scan(pyproject_path: &str, lock_path: &str) -> anyhow::Result<ScanResult> {
     let (pyproject, lock_map) = parse_files(pyproject_path, lock_path)?;
 
     let mut seen: HashSet<String> = HashSet::new();
@@ -717,130 +734,4 @@ pub fn fix_suggestions(
 ) -> anyhow::Result<Vec<FixSuggestion>> {
     let result = vulnerability_scan(pyproject_path, lock_path)?;
     Ok(fix_suggestions_from_scan(&result))
-}
-
-// ── PyO3 bindings ─────────────────────────────────────────────────────────────
-
-use pyo3::prelude::*;
-
-#[pyclass(get_all)]
-#[derive(Clone)]
-pub struct PyCveInfo {
-    pub id: String,
-    pub summary: Option<String>,
-    pub details: Option<String>,
-    pub severity: Option<String>,
-    pub fix_version: Option<String>,
-    pub last_affected_version: Option<String>,
-    pub advisory_url: Option<String>,
-}
-
-#[pyclass(get_all)]
-#[derive(Clone)]
-pub struct PyVulnerabilityReport {
-    pub package: String,
-    pub version: String,
-    pub ancestors: Vec<String>,
-    pub cves: Vec<PyCveInfo>,
-}
-
-#[pyclass(get_all)]
-pub struct PyScanResult {
-    pub total_scanned: usize,
-    pub vulnerabilities: Vec<PyVulnerabilityReport>,
-}
-
-#[pyclass(get_all)]
-#[derive(Clone)]
-pub struct PyFixSuggestion {
-    pub package: String,
-    pub current_version: String,
-    pub fix_version: Option<String>,
-    pub last_affected_version: Option<String>,
-    pub bump_type: String,
-    pub is_direct: bool,
-    pub ancestors: Vec<String>,
-    pub total_cve_count: usize,
-    pub unfixable_cve_ids: Vec<String>,
-    pub option_a_reason: String,
-    pub immediate_parent: Option<String>,
-    pub immediate_parent_version: Option<String>,
-    pub tier1_dep: Option<String>,
-}
-
-fn cve_to_py(c: CveInfo) -> PyCveInfo {
-    PyCveInfo {
-        id: c.id,
-        summary: c.summary,
-        details: c.details,
-        severity: c.severity,
-        fix_version: c.fix_version,
-        last_affected_version: c.last_affected_version,
-        advisory_url: c.advisory_url,
-    }
-}
-
-fn vuln_to_py(v: VulnerabilityReport) -> PyVulnerabilityReport {
-    PyVulnerabilityReport {
-        package: v.package,
-        version: v.version,
-        ancestors: v.ancestors,
-        cves: v.cves.into_iter().map(cve_to_py).collect(),
-    }
-}
-
-fn sugg_to_py(s: FixSuggestion) -> PyFixSuggestion {
-    PyFixSuggestion {
-        package: s.package,
-        current_version: s.current_version,
-        fix_version: s.fix_version,
-        last_affected_version: s.last_affected_version,
-        bump_type: s.bump_type,
-        is_direct: s.is_direct,
-        ancestors: s.ancestors,
-        total_cve_count: s.total_cve_count,
-        unfixable_cve_ids: s.unfixable_cve_ids,
-        option_a_reason: s.option_a_reason,
-        immediate_parent: s.immediate_parent,
-        immediate_parent_version: s.immediate_parent_version,
-        tier1_dep: s.tier1_dep,
-    }
-}
-
-#[pyfunction]
-#[pyo3(name = "dependency_tree")]
-fn py_dependency_tree(pyproject_path: &str, lock_path: &str) -> PyResult<String> {
-    dependency_tree(pyproject_path, lock_path)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
-}
-
-#[pyfunction]
-#[pyo3(name = "vulnerability_scan")]
-fn py_vulnerability_scan(pyproject_path: &str, lock_path: &str) -> PyResult<PyScanResult> {
-    let result = vulnerability_scan(pyproject_path, lock_path)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-    Ok(PyScanResult {
-        total_scanned: result.total_scanned,
-        vulnerabilities: result.vulnerabilities.into_iter().map(vuln_to_py).collect(),
-    })
-}
-
-#[pyfunction]
-#[pyo3(name = "fix_suggestions")]
-fn py_fix_suggestions(pyproject_path: &str, lock_path: &str) -> PyResult<Vec<PyFixSuggestion>> {
-    let suggestions = fix_suggestions(pyproject_path, lock_path)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-    Ok(suggestions.into_iter().map(sugg_to_py).collect())
-}
-
-#[pymodule]
-fn uv_audit(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PyCveInfo>()?;
-    m.add_class::<PyVulnerabilityReport>()?;
-    m.add_class::<PyScanResult>()?;
-    m.add_class::<PyFixSuggestion>()?;
-    m.add_function(wrap_pyfunction!(py_dependency_tree, m)?)?;
-    m.add_function(wrap_pyfunction!(py_vulnerability_scan, m)?)?;
-    m.add_function(wrap_pyfunction!(py_fix_suggestions, m)?)?;
-    Ok(())
 }

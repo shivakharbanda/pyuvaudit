@@ -1,14 +1,21 @@
-# uv-audit
+# py-uv-audit
 
-Python vulnerability scanner for `uv`-managed projects, powered by a Rust core with PyO3 bindings.
+Vulnerability scanner for `uv`-managed Python projects. Written in Rust; shipped
+as a precompiled binary via PyPI wheels (maturin `bindings = "bin"` mode). PyPI
+name is `py-uv-audit` because the bare `uv-audit` was taken.
+
+There is **no PyO3 layer and no `import py_uv_audit` Python API** — `pip install`
+is purely the distribution mechanism, same model as `ruff` and `uv`.
 
 ## Project structure
 
 | Path | Purpose |
 |------|---------|
-| `rust/` | Rust crate — library (`uv_audit`) + CLI binary |
-| `rust/src/lib.rs` | All business logic + PyO3 Python bindings |
-| `rust/src/main.rs` | Thin CLI wrapper (ANSI formatting, arg parsing) |
+| `Cargo.toml` | Crate metadata, dependencies, release profile |
+| `src/lib.rs` | Business logic (parsing, OSV API, scan, fix suggestions) |
+| `src/main.rs` | CLI entry point — argparse + ANSI formatting |
+| `pyproject.toml` | PyPI packaging via maturin (reads version from Cargo.toml) |
+| `.github/workflows/ci.yml` | Lint, build matrix (5 platforms), sdist, OIDC publish |
 
 ## Before editing any Rust code
 
@@ -18,35 +25,29 @@ Python vulnerability scanner for `uv`-managed projects, powered by a Rust core w
 /rust-expert
 ```
 
-The skill is at `.claude/skills/rust-expert/SKILL.md`. It covers Rust 2024 edition idioms, ownership patterns, error handling with `anyhow`/`thiserror`, PyO3 bindings, and Clippy/fmt requirements.
-
-Do not modify `rust/src/lib.rs` or `rust/src/main.rs` without the skill loaded.
+The skill is at `.claude/skills/rust-expert/SKILL.md`. It covers Rust 2024
+edition idioms, ownership patterns, error handling with `anyhow`/`thiserror`,
+and Clippy/fmt requirements.
 
 ## Building the CLI
 
 ```sh
-cd rust
 cargo build                    # compile
 cargo run -- --tree            # dependency tree
 cargo run -- --suggest         # vuln report + fix suggestions
-cargo run -- --tree --suggest  # all three
+cargo run -- --tree --suggest  # all of the above
 cargo run -- --pyproject /path/to/pyproject.toml --lockfile /path/to/uv.lock
 ```
 
-## Python bindings
+## Building the PyPI wheel locally
 
-The Rust lib exposes 3 functions via PyO3:
-
-```python
-import uv_audit
-
-tree: str = uv_audit.dependency_tree("pyproject.toml", "uv.lock")
-report     = uv_audit.vulnerability_scan("pyproject.toml", "uv.lock")
-# report.total_scanned: int
-# report.vulnerabilities: list[PyVulnerabilityReport]
-
-suggestions = uv_audit.fix_suggestions("pyproject.toml", "uv.lock")
-# each: PyFixSuggestion with package, fix_version, bump_type, is_direct, ...
+```sh
+uv tool install "maturin>=1.7,<2.0"
+maturin build --release        # dist/py_uv_audit-*.whl
 ```
 
-Build the Python wheel with `maturin` (setup coming next).
+## Releasing
+
+Bump `version` in `Cargo.toml` (single source of truth), commit, tag `v*`, push.
+GitHub Actions builds wheels for all platforms and publishes to PyPI via OIDC
+trusted publishing.

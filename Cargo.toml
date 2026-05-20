@@ -1,0 +1,30 @@
+[package]
+name = "py-uv-audit"
+version = "0.1.0"
+edition = "2024"
+description = "Vulnerability scanner for uv-managed Python projects"
+license = "MIT"
+repository = "https://github.com/YOUR-GITHUB-USERNAME/py-uv-audit"
+readme = "README.md"
+keywords = ["security", "vulnerability", "audit", "uv", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "py_uv_audit"
+
+[[bin]]
+name = "py-uv-audit"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

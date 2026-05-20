@@ -1,1 +1,13 @@
-rust/target
+# Rust
+target/
+
+# Python packaging
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.vscode/
+.idea/

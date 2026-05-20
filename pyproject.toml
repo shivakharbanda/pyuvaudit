@@ -1,0 +1,30 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "py-uv-audit"
+dynamic = ["version"]
+description = "Vulnerability scanner for uv-managed Python projects (Rust binary shipped via PyPI)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+keywords = ["security", "vulnerability", "audit", "uv", "rust", "cli"]
+authors = [{ name = "Mohit Mamgain", email = "mohitmamgain16@gmail.com" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+    "Environment :: Console",
+]
+
+[project.urls]
+Repository = "https://github.com/YOUR-GITHUB-USERNAME/py-uv-audit"
+"Bug Tracker" = "https://github.com/YOUR-GITHUB-USERNAME/py-uv-audit/issues"
+
+[tool.maturin]
+bindings = "bin"
+strip = true

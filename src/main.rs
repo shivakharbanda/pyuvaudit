@@ -1,4 +1,6 @@
-use uv_audit::{FixSuggestion, ScanResult};
+use clap::{Args, CommandFactory, Parser, Subcommand};
+use py_uv_audit::{FixSuggestion, ScanResult};
+use std::path::Path;
 
 fn colorize_severity(s: &str) -> String {
     let upper = s.to_uppercase();
@@ -21,12 +23,6 @@ fn bump_label(bump_type: &str) -> String {
         _ => ("PATCH", "\x1b[32m"),
     };
     format!("{}{}\x1b[0m", code, label)
-}
-
-fn get_arg<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
-    args.windows(2)
-        .find(|w| w[0] == flag)
-        .map(|w| w[1].as_str())
 }
 
 fn print_scan_report(result: &ScanResult) {
@@ -108,7 +104,10 @@ fn print_fix_suggestions_cli(suggestions: &[FixSuggestion]) {
                         if fixable == 1 { "y" } else { "ies" }
                     );
                 } else {
-                    println!("    Fixes {} of {} vulnerabilities", fixable, s.total_cve_count);
+                    println!(
+                        "    Fixes {} of {} vulnerabilities",
+                        fixable, s.total_cve_count
+                    );
                     for uid in &s.unfixable_cve_ids {
                         println!("    \x1b[91m⚠ {} has no fix available\x1b[0m", uid);
                     }
@@ -154,10 +153,11 @@ fn print_fix_suggestions_cli(suggestions: &[FixSuggestion]) {
                 );
                 println!("    Option A: uv lock --upgrade-package {}", s.package);
                 println!("              {}", s.option_a_reason);
-                println!("    Option B: add \"{}>={}\" to pyproject.toml", s.package, fix_ver);
                 println!(
-                    "              if Option A causes a conflict, pin a version floor here"
+                    "    Option B: add \"{}>={}\" to pyproject.toml",
+                    s.package, fix_ver
                 );
+                println!("              if Option A causes a conflict, pin a version floor here");
                 println!("    Option C: uv lock --upgrade-package {}", tier1);
                 println!(
                     "              last resort — upgrades {} so it pulls in a compatible {}",
@@ -169,7 +169,10 @@ fn print_fix_suggestions_cli(suggestions: &[FixSuggestion]) {
                     s.package, s.current_version, la, via
                 );
                 println!("    Option A: uv lock --upgrade-package {}", s.package);
-                println!("    Option B: add \"{}>{}\" to pyproject.toml", s.package, la);
+                println!(
+                    "    Option B: add \"{}>{}\" to pyproject.toml",
+                    s.package, la
+                );
                 println!("    Option C: uv lock --upgrade-package {}", tier1);
             } else {
                 println!(
@@ -189,25 +192,118 @@ fn print_fix_suggestions_cli(suggestions: &[FixSuggestion]) {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let tree_mode    = args.iter().any(|a| a == "--tree");
-    let suggest_mode = args.iter().any(|a| a == "--suggest");
-    let pyproject_path = get_arg(&args, "--pyproject").unwrap_or("pyproject.toml");
-    let lock_path      = get_arg(&args, "--lockfile").unwrap_or("uv.lock");
+#[derive(Parser)]
+#[command(
+    name = "py-uv-audit",
+    version,
+    about = "Vulnerability scanner for uv-managed Python projects",
+    long_about = "Scans your pyproject.toml + uv.lock against the OSV database \
+                  and reports vulnerable packages, with optional dependency tree \
+                  and fix suggestions."
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
 
-    if tree_mode {
+#[derive(Subcommand)]
+enum Commands {
+    /// Scan the project for vulnerabilities
+    Audit(AuditArgs),
+}
+
+#[derive(Args)]
+struct AuditArgs {
+    /// Print the full dependency tree before the report
+    #[arg(long)]
+    tree: bool,
+
+    /// Print fix suggestions after the report
+    #[arg(long)]
+    suggest: bool,
+
+    /// Path to pyproject.toml
+    #[arg(long, default_value = "pyproject.toml")]
+    pyproject: String,
+
+    /// Path to uv.lock
+    #[arg(long, default_value = "uv.lock")]
+    lockfile: String,
+}
+
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        None => {
+            Cli::command().print_help()?;
+            println!();
+            Ok(())
+        }
+        Some(Commands::Audit(args)) => run_audit(args),
+    }
+}
+
+fn run_audit(args: AuditArgs) -> anyhow::Result<()> {
+    check_project_files(&args.pyproject, &args.lockfile)?;
+
+    if args.tree {
         println!("=== DEPENDENCY TREE ===\n");
-        print!("{}", uv_audit::dependency_tree(pyproject_path, lock_path)?);
+        print!(
+            "{}",
+            py_uv_audit::dependency_tree(&args.pyproject, &args.lockfile)
+                .map_err(wrap_network_error)?
+        );
     }
 
-    let result = uv_audit::vulnerability_scan(pyproject_path, lock_path)?;
+    let result = py_uv_audit::vulnerability_scan(&args.pyproject, &args.lockfile)
+        .map_err(wrap_network_error)?;
     print_scan_report(&result);
 
-    if suggest_mode && !result.vulnerabilities.is_empty() {
-        let suggestions = uv_audit::fix_suggestions_from_scan(&result);
+    if args.suggest && !result.vulnerabilities.is_empty() {
+        let suggestions = py_uv_audit::fix_suggestions_from_scan(&result);
         print_fix_suggestions_cli(&suggestions);
     }
 
     Ok(())
+}
+
+fn check_project_files(pyproject: &str, lockfile: &str) -> anyhow::Result<()> {
+    if !Path::new(pyproject).is_file() {
+        anyhow::bail!(
+            "pyproject.toml not found at {pyproject}\n\n\
+             py-uv-audit must be run from the root of a uv-managed Python project,\n\
+             or pointed at one explicitly:\n\n    \
+             py-uv-audit audit --pyproject <PATH> --lockfile <PATH>\n\n\
+             A 'uv-managed project' is any directory containing both pyproject.toml\n\
+             and uv.lock (created by `uv init` or `uv lock`)."
+        );
+    }
+    if !Path::new(lockfile).is_file() {
+        anyhow::bail!(
+            "uv.lock not found at {lockfile}\n\n\
+             Run `uv lock` to generate it, or point py-uv-audit at an existing\n\
+             one with --lockfile <PATH>."
+        );
+    }
+    Ok(())
+}
+
+fn wrap_network_error(err: anyhow::Error) -> anyhow::Error {
+    for cause in err.chain() {
+        if let Some(re) = cause.downcast_ref::<reqwest::Error>()
+            && (re.is_connect() || re.is_timeout())
+        {
+            return anyhow::anyhow!(
+                "could not reach the OSV vulnerability database at api.osv.dev\n\n\
+                 This is a network problem on your machine, not a bug in py-uv-audit.\n\
+                 Try:\n  \
+                 - Confirm you have an internet connection\n  \
+                 - If behind a corporate proxy, set HTTPS_PROXY before re-running\n  \
+                 - Check whether api.osv.dev is reachable from your browser\n\n\
+                 Underlying error: {re}"
+            );
+        }
+    }
+    err
 }
